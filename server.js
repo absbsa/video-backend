@@ -22,37 +22,51 @@ mongoose.connect(mongoUri, {
     process.exit(1);
   });
 
-// 定义数据模型（只保留需要的字段）
+// 定义数据模型（新增实际播放时长字段）
 const watchRecordSchema = new mongoose.Schema({
   username: { type: String, required: true },
   ip: { type: String, required: true },
   videoUrl: { type: String, required: true },
+  actualWatchSeconds: { type: Number, required: true }, // 存储实际播放时长（秒）
   createdAt: { type: Date, default: Date.now }
 }, { versionKey: false }); // 移除 __v 字段
 
 const WatchRecord = mongoose.model('WatchRecord', watchRecordSchema);
 
-// 数据上报接口
+// 数据上报接口（适配实际播放时长）
 app.post('/api/report', async (req, res) => {
   try {
-    const { username, ip, videoUrl } = req.body;
+    const { username, ip, videoUrl, actualWatchSeconds } = req.body;
     
-    // 基础验证
-    if (!username || !ip || !videoUrl) {
+    // 基础验证（新增实际时长校验）
+    if (!username || !ip || !videoUrl || actualWatchSeconds === undefined) {
       return res.status(400).json({ 
         success: false, 
-        message: '缺少必要参数（username, ip, videoUrl 为必填项）' 
+        message: '缺少必要参数（username, ip, videoUrl, actualWatchSeconds 为必填项）' 
+      });
+    }
+
+    // 验证实际播放时长为有效数字
+    if (typeof actualWatchSeconds !== 'number' || actualWatchSeconds < 0) {
+      return res.status(400).json({
+        success: false,
+        message: '实际播放时长必须为非负数字'
       });
     }
 
     const newRecord = new WatchRecord({
       username,
       ip,
-      videoUrl
+      videoUrl,
+      actualWatchSeconds // 存储前端上报的实际播放时长
     });
     
     await newRecord.save();
-    res.status(200).json({ success: true, message: '数据已保存' });
+    res.status(200).json({ 
+      success: true, 
+      message: '数据已保存',
+      data: { actualWatchSeconds } // 返回实际存储的时长，方便前端确认
+    });
   } catch (error) {
     console.error('数据保存失败:', error);
     res.status(500).json({ 
@@ -69,7 +83,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok', 
     mongoConnected: mongoose.connection.readyState === 1,
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.1' // 版本号更新，标识支持实际时长存储
   });
 });
 
